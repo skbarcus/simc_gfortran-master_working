@@ -1,5 +1,5 @@
 # ignore patterns
-
+*.root
 *~
 # Objects and executable
 *.o
