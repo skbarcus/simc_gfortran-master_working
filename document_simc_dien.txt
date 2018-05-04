@@ -1,0 +1,30 @@
+-------------------making this reading file-------------
+-------------------Dien--- 17th--Feb-2016---------------
+------------------recall what I have changed in SIMC---
+----this to check the RC using SIMC for elastic scattering-----
+
+1. infiles/extra_hydrogen.inp 
+
+ - This extra input uses to set up radiative correction mode when we run SIMC
+
+  > option  using_rad = 0    turn off RC
+  > option  using_rad = 1    turn on RC
+
+2. dbase.f file
+
+ > in this file Mh is setted to hydrogen mass
+ > now we need to change to He3 mass. 
+ > So we set Mh = MHe3
+ >           targ%Mtar_struck = MHe3
+
+
+3. radc.f 
+
+ > this file to set up the radiative correction
+ > also need to change to use Mh
+ > since it was using "mp" to set the ebeam_max and ebeam_min
+ > for doing doing_hyd_elast
+
+
+
+

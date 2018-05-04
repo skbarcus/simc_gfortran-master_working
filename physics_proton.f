@@ -1,0 +1,276 @@
+	real*8 function sigep(vertex)
+
+! elastic cross section, units are set by sigMott.f (microbarn/sr)
+
+	implicit none
+	include 'simulate.inc'
+
+c	real*8	q4sq,qmu4mp,W1p,W2p,Wp,GE,GM,sigMott
+c	type(event):: vertex
+
+c	q4sq	= vertex%Q2
+c	call fofa_best_fit(-q4sq/hbarc**2,GE,GM)
+c	qmu4mp	= q4sq/4./Mp2
+c	W1p = GM**2*qmu4mp
+c	W2p = (GE**2+GM**2*qmu4mp)/(1.0+qmu4mp)
+c	Wp = W2p + 2.*W1p*tan(vertex%e%theta/2.)**2
+c	sigep = sigMott(vertex%e%E,vertex%e%theta,vertex%q2) *
+c    >		vertex%e%E/vertex%Ein * Wp
+c	if (debug(5)) write(6,*) 'sigMott',GE,GM
+c	return
+c	end
+        DOUBLE PRECISION E0,PF_E,TSCAT,POL_BEAM,HE3_SIG,HE3_ASYM
+        DOUBLE PRECISION PN_HI,PT_HI,PL_HI,PN_HD,PT_HD,PL_HD
+        DOUBLE PRECISION FS_CONST,AMOTT,COSTH2,SINTH2,TANTH2
+        DOUBLE PRECISION EP,ETA,FACC,FACM,FACS,FCH,FMAG,HC,Q,Q4SQ
+        DOUBLE PRECISION SIG,TAU,XMT,XMU,XMUA,Z,A,Qeff
+	real*8 sigMott
+	type(event):: vertex
+	Q4SQ	= vertex%Q2
+
+c ------------constant for calculation--------------------------
+        HC=197.327             !Conversion constant in MeV fm
+        FS_CONST=0.0072973     !Fine Struction Constant 
+        XMT=2808.413           !3He Nuclear Mass of 3He           
+        XMU=-2.12762485        !3He Nuclear Magnetic Moment
+c        A=3.                   !3He Atomic Number
+c        Z=2.                   !3He Charge 
+
+
+C---------calculation----------------------------------------
+
+       
+c        write(*,*) vertex%Ein,'***************'       
+        Q       = sqrt(Q4SQ)/HC    !this to convert Q in fm using FF
+        Qeff=Q*
+     >     ( 1. + 1.5*2*FS_CONST*HC/vertex%Ein/
+     >        (1.12*3**0.33333)  )
+c------call the form factor function -------------------------------
+        FCH=0.
+        FMAG=0.        
+        call HE3_FACTORS(FMAG,FCH,Q)
+        TAU= Q4SQ/(4*XMT*XMT)
+        XMUA=3./2*XMU
+        FACC= 1./(1. + TAU)
+        FACM= TAU*XMUA**2*(FACC+2*tan(vertex%e%theta/2.)**2)
+        FACS= FCH*FCH*FACC +FMAG*FMAG*FACM
+       	sigep = sigMott(vertex%e%E,vertex%e%theta,vertex%q2) *
+     >        vertex%e%E/vertex%Ein * FACS * 4  ! xs in microbar
+	if (debug(5)) write(6,*) 'sigMott',FCH,FMAG
+	return
+	end
+        
+
+!-------------subroutine _cal _He3_form_factors-------------------------
+C
+      SUBROUTINE HE3_FACTORS(FMAG,FCH,Q)
+
+      DOUBLE PRECISION Q,GAMMA,FM,FC,FMAG,FCH,HE3_CFF
+      DOUBLE PRECISION  HE3_MFF,QM(12),R(12),QC(12)
+
+      DATA QM/0.059785,0.138368,0.281326,0.000037,0.289808,
+     _0.019056,0.114825,0.042296,0.028345,0.018312,0.007843,0.0/
+      DATA QC/0.027614,0.170847,0.219805,0.170486,0.134453,0.100953,
+     _0.074310,0.053970,0.023689,0.017502,0.002034,0.004338/
+      DATA R/0.1,0.5,0.9,1.3,1.6,2.0,2.4,2.9,3.4,4.0,4.6,5.2/
+
+        GAMMA=0.65320
+
+        FM  = 0.0
+        FC  = 0.0
+        HE3_MFF = 0.0
+        HE3_CFF = 0.0
+
+        FM = 0.0
+        do 100 i=1,12
+         A= QM(i)/(1.+2.*(R(i)**2)/GAMMA**2)
+         B = cos(Q*R(i))
+         C = (2.*R(i)**2)/GAMMA**2
+         D = (sin(Q*R(i)))/(Q*R(i))
+         FM = A*(B+C*D) +FM
+100     continue
+
+        HE3_MFF=FM*exp(-0.25*Q**2*GAMMA**2)
+        HE3_MFF=sqrt(HE3_MFF*HE3_MFF)
+        FMAG=HE3_MFF
+
+        do 200 i=1,12
+         A= qc(i)/(1.+2.*(R(i)**2)/GAMMA**2)
+         B = cos(Q*R(i))
+         C = (2.*R(i)**2)/GAMMA**2
+         D = (sin(Q*R(i)))/(Q*R(i))
+         FC = A*(B+C*D) +FC
+200     continue
+
+        HE3_CFF=FC*exp(-0.25*Q**2*GAMMA**2)
+        HE3_CFF=sqrt(HE3_CFF*HE3_CFF)
+        FCH=HE3_CFF
+      RETURN
+      END
+
+!-------------------------------------------------------------------------
+
+	real*8 function deForest(ev)
+
+	implicit none
+	include 'simulate.inc'
+
+	type(event):: ev
+
+	real*8	q4sq,ebar,qbsq,GE,GM,f1,kf2,qmu4mp,sigMott,sin_gamma,cos_phi
+	real*8	pbarp,pbarq,pq,qbarq,q2,f1sq,kf2_over_2m_allsq
+	real*8	sumFF1,sumFF2,termC,termT,termS,termI,WC,WT,WS,WI,allsum
+
+! Compute deForest sigcc cross-section, according to value of DEFOREST_FLAG:
+!	Flag = 0    -- use sigcc1
+!	Flag = 1    -- use sigcc2
+!	Flag = -1   -- use sigcc1 ONSHELL, replacing Ebar with E = E'-nu
+!			and qbar with q (4-vector)
+! N.B.	Beware of deForest's metric when taking all those 4-vector inner
+!	products in sigcc2 ... it is (-1,1,1,1)!
+!	Here, I've defined all the inner products with the regular signs,
+!	and then put them in the structure function
+!	formulas with reversed signs compared to deForest.
+!
+! Note that this can be called with either the vertex or recon event records,
+! but like a good function, it does not modify anything in those records.
+!
+! JRA: Note, let me make a comment about the following, because I was badly
+! confused about it the first time through.  The 6-fold cross section is:
+! d6sigma = K * S(E,p) * sigma_eN.  This routine returns a quantity 'deForest'
+! which is d6sigma/S(E,p) = K*sigma_eN
+! = (E'*p')*sigma_mott*[sum of terms like a_i*W_i].
+! Each W_i term has E'/Ebar in it.  In the following code, the E'/Ebar appears
+! to have been removed from the W_i terms, and combined with the K=E'*p' term
+! to give an overall p'/Ebar in the final expression.
+! More importantly, since the Spectral Function has been divided out, the
+! units are MeV^4 * the 6-fold cross section units, and so for sigma_mott
+! in microbarn/sr, 'deForest' is in microbarn*MeV^2/sr^2, giving the correct
+! cross seciton units once we multiply by S(E,p) which is in MeV^-4
+
+	q4sq = -ev%Q2
+	q2 = ev%q**2
+	if (deForest_flag.ge.0) then
+	  ebar = sqrt(ev%Pm**2 + Mh2)
+	  qbsq = (ev%p%E-ebar)**2 - q2
+	else
+	  ebar = ev%p%E - ev%nu
+	  qbsq = q4sq
+	endif
+
+	sin_gamma = 1. - (ev%uq%x*ev%up%x+ev%uq%y*ev%up%y+ev%uq%z*ev%up%z)**2
+	if (sin_gamma.lt.0) then
+	  write(6,'(1x,''WARNING: deForest came up with sin_gamma = '',f10.3,'' at event '',i10)') sin_gamma, nevent
+	  sin_gamma = 0.0
+	endif
+	sin_gamma = sqrt(sin_gamma)
+	cos_phi = 0.0
+	if (sin_gamma.ne.0) cos_phi=(ev%uq%y*(ev%uq%y*ev%up%z-ev%uq%z*ev%up%y)
+     >		- ev%uq%x*(ev%uq%z*ev%up%x-ev%uq%x*ev%up%z))
+     >		/ sin_gamma / sqrt(1.-ev%uq%z**2)
+	if (abs(cos_phi).gt.1.) then		!set to +/-1, warn if >1.d-10
+	  cos_phi = sign(1.0,cos_phi)
+	  if ( (abs(cos_phi)-1.) .gt. 1.d-10) write(6,*)
+     >		'WARNING: deForest give cos_phi = ',cos_phi,' at event',nevent
+	endif
+
+	call fofa_best_fit(q4sq/hbarc**2,GE,GM)
+	qmu4mp = q4sq/4./Mp2
+	f1 = (GE-GM*qmu4mp)/(1.0-qmu4mp)
+	kf2 = (GM-GE)/(1.0-qmu4mp)
+	f1sq = f1**2
+	kf2_over_2m_allsq = kF2**2/4./Mh2
+
+	termC = (q4sq/q2)**2
+	termT = (tan(ev%e%theta/2.))**2 - q4sq/2./q2
+	termS = tan(ev%e%theta/2.)**2 - (q4sq/q2)*cos_phi**2
+	termI = (-q4sq/q2)*sqrt(tan(ev%e%theta/2.)**2-q4sq/q2)*cos_phi
+
+	if (deForest_flag.le.0) then
+	  sumFF1 = (f1 + kf2)**2
+	  sumFF2 = f1sq - qbsq*kf2*kf2/4./Mh2
+
+	  WC = ((ebar+ev%p%E)**2)*sumFF2 - q2*sumFF1
+	  WT = -2*qbsq*sumFF1
+	  WS = 4*(ev%p%P**2)*(sin_gamma**2)*sumFF2
+	  WI = -4*(ebar+ev%p%E)*ev%p%P*sin_gamma*sumFF2
+	else
+	  pbarp=ebar*ev%p%E-ev%p%p*(ev%up%x*ev%Pmx+ev%up%y*ev%Pmy+ev%up%z*ev%Pmz)
+	  pbarq=ebar*ev%nu-ev%q*(ev%uq%x*ev%Pmx+ev%uq%y*ev%Pmy+ev%uq%z*ev%Pmz)
+	  pq = ev%p%E*ev%nu - ev%p%p * ev%q * (ev%up%x*ev%uq%x +
+     >		ev%up%y*ev%uq%y + ev%up%z*ev%uq%z)
+	  qbarq = (ev%p%E-ebar)*ev%nu - q2
+
+	  WC =	(ebar*ev%p%E+(-pbarp+Mh2)/2.) * f1sq - q2*f1*kf2/2.
+     >		- ( (-pbarq*ev%p%E-pq*ebar)*ev%nu + ebar*ev%p%E*q4sq +
+     >		pbarq*pq - (-pbarp-Mh2)/2.*q2 ) * kf2_over_2m_allsq
+	  WT =	- (-pbarp+Mh2)*f1sq - qbarq*f1*kF2
+     >		+ (2.*pbarq*pq + (-pbarp-Mh2)*q4sq) * kf2_over_2m_allsq
+	  WS =	(ev%p%p*sin_gamma)**2 * (f1sq - q4sq*kf2_over_2m_allsq)
+	  WI =	ev%p%p*sin_gamma * ( -(ebar+ev%p%E)*f1sq + ((-pbarq-pq)*
+     >		ev%nu+(ebar+ev%p%E)*q4sq)*kf2_over_2m_allsq )
+	endif
+
+	allsum = termC*WC + termT*WT + termS*WS + termI*WI
+	if (deForest_flag.le.0) allsum = allsum/4.0
+	deForest = sigMott(ev%e%E,ev%e%theta,ev%Q2)*ev%p%P*allsum/ebar	!microbarn*(MeV/sr)**2
+	if (debug(5)) write(6,*) 'deForest',GE,GM
+
+	return
+	end
+
+!-------------------------------------------------------------------------
+
+	subroutine fofa_best_fit(qsquar,GE,GM)
+
+*	csa 9/14/98 -- This calculates the form factors Gep and Gmp using
+*	Peter Bosted's fit to world data (Phys. Rev. C 51, 409, Eqs. 4
+*	and 5 or, alternatively, Eqs. 6)
+
+	implicit none
+	include 'simulate.inc'
+
+	real*8  qsquar,GE,GM,mu_p
+	real*8  Q,Q2,Q3,Q4,Q5,denom
+
+	mu_p = 2.793
+
+	Q2 = -qsquar*(hbarc**2.)*1.d-6
+	Q  = sqrt(max(Q2,0.d0))
+
+	Q3 = Q**3.
+	Q4 = Q**4.
+	Q5 = Q**5.
+
+* Use Eqs 4, 5:
+	denom = 1. + 0.62*Q + 0.68*Q2 + 2.8*Q3 + 0.83*Q4
+	GE = 1./denom
+	denom = 1. + 0.35*Q + 2.44*Q2 + 0.5*Q3 + 1.04*Q4 + 0.34*Q5
+	GM = mu_p/denom
+
+* OR Eqs 6:
+*	denom = 1. + 0.14*Q + 3.01*Q2 + 0.02*Q3 + 1.20*Q4 + 0.32*Q5
+*	GE = 1./denom
+*	GM = mu_p/denom
+
+	return
+	end
+
+
+!-------------------------------------------------------------------------
+
+	real*8 function sigMott(e0,theta,Q2)
+
+	implicit none
+	include 'constants.inc'
+
+	real*8 e0,theta,Q2
+	real*8 sig
+
+! The Mott cross section (for a point nucleus) in microbarns/sr.
+
+	sig = (2.*alpha*hbarc*e0*cos(theta/2.)/Q2 )**2
+	sigMott = sig*1.d4	!fm**2 --> microbarns
+c        sigMott = sig           ! in fm**2
+	return
+	end
